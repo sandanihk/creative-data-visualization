@@ -1,0 +1,153 @@
+---
+title: "creative-data-visualization"
+format: html
+author: Sandani Kottegoda
+date: today
+---
+
+#### Instructions:
+
+*Your visualization must involve loading, transforming, and visualizing a set of custom data into a creative, non-traditional representation.*
+
+
+# Recreating Spotify Wrapped
+
+One thing about me is that I really love music! There is something about the production, lyricism, and other creative aspects that just excite me. Since I am very passionate about music, I thought it would be very fun to stay in the realm of it and create visualizations.
+
+I found a dataset called "Spotify Global Music Dataset (2009-2025)," which provides information of streaming metadata that tracks the performance and characteristics of music during the modern streaming era. While the dataset was compiled between 2009 and 2025, it has a historical range of tracks released as early as 1952, allowing for a longitudinal analysis of musical trends over several decades. It includes columns like `track_name`, `track_popularity` (ranging from 0-100; they did not explain this but I assume 100 means more popular), `artist_name`, `artist_popularity` (also ranging from 0-100), `artist_genres`, etc. *This dataset is different from the dataset used in the Collaborative Data Science project I worked on.*
+
+My goal was this dataset is to try and create Spotify Wrapped-esque visualizations for the data from the past decades. Specifically, I created a bump chart showing the top artists over 2015-2025 and a mountain-like chart to show the top genres since 1952 from what was available from the Spotify dataset.
+
+I wanted to use my own data for this project, but it takes a few days to a month for Spotify to prepare this information. However, I hope I can use this code and make the plots for my listening data!
+
+Dataset link: https://www.kaggle.com/datasets/wardabilal/spotify-global-music-dataset-20092025/data
+(I specifically used "track_data_final.csv)
+
+
+## Preliminaries:
+
+Here, I am loading in the necessary pacakges and dataset. `read_csv()` was used from {tidyverse} and `col_names` was set to TRUE so the first row can serve as the column names. Additionally, I used `head()`, `names()`, and `str()` to explore the dataset.
+```{r}
+# loading in necessary packages
+library(tidyverse)
+
+# loading in data
+f <- ("https://raw.githubusercontent.com/sandanihk/creative-data-visualization/refs/heads/main/track_data_final.csv")
+
+d <- read_csv(file = f, col_names = TRUE)
+
+# exploring dataset
+head(d)
+names(d)
+str(d)
+```
+
+
+To prepare the data for the first chart, I began cleaning the data. First, I created `d_notation` to standardize the `artist_genres` column and strip away brackets and quotation marks, and fix the spacing, ultimately creating a clean string of text. I then extracted the four-digit year from the `album_release_date` with `substr()` and converted it into a numeric type for plotting. Lastly, because there were many songs associated with multiple genres, `separate_rows()` function unnested these lists and created individual rows for each genre per song. Empty entries were also removed. This results in a new column called `genres_clean` and was assigned the the final data frame `d_clean`.
+```{r}
+# cleaning data frame
+d_notation <- d |>
+  mutate(genres_clean = str_remove_all(artist_genres, "\\[|\\]|'"), # removing brackets and ''
+         genres_clean = str_replace_all(genres_clean, ", ", ",")) |>  # replacing "," with a standard comma if needed)
+  mutate(year = substr(album_release_date, 1, 4)) |> # extracting the year since YEAR-MONTH-DAY was the original format
+  mutate(year = as.numeric(year)) # converting to numeric
+
+# separating songs with multiple genres into individual rows
+d_clean <- d_notation |>
+  separate_rows(genres_clean, sep = ",") |> # separating rows based on commas
+  mutate(genres_clean = str_trim(genres_clean)) |> 
+  filter(genres_clean != "") # removes empty strings where no genre was listed
+```
+
+
+## Bump Chart for the Top Artists Over the Years
+
+The following code creates a bump chart from the {ggbump} package (downloaded from the creator's GitHub!) to visualize the ranking of the top artists between 2015 and 2025. I only did the top three artists for the last ten most recent years in the dataset because there was a lot of data! After loading in the necessary libraries for the bump plotting, font, and color palettes, I summarized the listening data by calculating a total popularity score for each artist per year (`total_score`). A numerical rank is then calculated based on these scores and filters the results to subset the top three artists for each year (`rank`). To achieve the "Spotify" aesthetic, the code used the Montserrat font from Google Fonts and a dark theme. The resulting bump plot uses smooth lines to trace the movement of artists through the rankings over time to illustrate how global listening has changed across a decade.
+```{r}
+# DATA WRANGLING
+# loading in package for bump charts
+library(ggbump)
+library(showtext) # for Google Fonts
+library(pals) # for plot colors
+
+# preparing data to rank top artists by year
+bump_data <- d_clean |>
+  group_by(year, artist_name) |> # grouping by year and artist
+  summarize(total_score = sum(track_popularity, na.rm = TRUE), .groups = "drop") |> # calculating popularity for each artist
+  group_by(year) |>
+  mutate(rank = rank(desc(total_score), ties.method = "random")) |> # random tie-breaking ensures no overlapping ranks
+  filter(rank <= 3) |> # choosing top 3 artists
+  filter(year >= 2015) |> # choosing most recent decade
+  ungroup()
+
+
+# PLOT 
+# adding font to mimic Spotify's font 
+font_add_google("Montserrat", "montserrat")
+showtext_auto() # enabling font rendering for the plot
+
+# bump plot to map top artists
+ggplot(bump_data, aes(x = year, y = rank, color = artist_name)) +
+  geom_bump(smooth = 8, size = 1.5) + # creating lines between ranks
+  geom_point(size = 5) +
+  scale_y_reverse(breaks = 1:3) + # reverse axis so Rank 1 is at the top
+  scale_color_manual(values = pals::cols25(25), name = "Artist Name") + # adding high-contrast color palette
+  theme_minimal(base_family = "montserrat") + # adding font to plot
+  theme(plot.background = element_rect(fill = "#191414"), # matching Spotify's signature black
+        text = element_text(color = "white"),
+    legend.position = "right",
+    legend.background = element_blank(), # removing legend background
+    legend.key = element_rect(fill = "#191414", color = NA), # removing boxes
+    legend.text = element_text(size = 8, color = "white"),   # making text smaller
+    legend.title = element_text(size = 9, face = "bold"), # adjusting grid lines
+    panel.grid.major = element_line(color = "#333333"), 
+    panel.grid.minor = element_blank()) + # removing minor lines
+  scale_x_continuous(breaks = seq(2015, 2025, by = 1)) + # setting x-axis
+  labs(title = "Top Artists on Spotify", subtitle = "Rankings from 2015–2025", color = "Artist Name", x = "Year", y = "Rank")
+```
+The results show the top three artists between 2015-2025 based on the data available in the dataset. Many artists were a top artists only one time, while some were top artists with different rankings for multiple years. For example, Playboi Carti was ranked the third top artist in 2018 and the first in 2020--I had no idea about this.
+
+
+## Mountain Plot for Top Genres from 1952-2025
+
+The next visualization is a mountain-like area plot to visualize the shifting musical genre preferences over several decades. First, the top eight genres were identified to ensure the peaks of the most-listened-to music were clear (`top_genres`). The data were then aggregated by year to calculate play counts (`mount_data`). Then, by using a centered vertical adjustment, the visualization creates a mountain-like visualization. Similarly, the Montserrat font and a dark background was used to mimic Spotify's images.
+```{r}
+# DATA WRANGLING
+# filtering top 8 genres for mountain peaks
+top_genres <- d_clean |>
+  count(genres_clean, sort = TRUE) |> 
+  head(8) |>
+  pull(genres_clean) # pulling as a single vector to create genre list
+
+# preparing data for peaks
+mount_data <- d_clean |>
+  filter(genres_clean%in%top_genres) |> # filtering top genres
+  group_by(year, genres_clean) |>
+  summarize(count = n()) # aggregating totals per year
+
+
+# PLOT
+# adding font for mountain chart
+font_add_google("Montserrat", "montserrat")
+showtext_auto()
+
+# creating mountain-like visualization
+ggplot(mount_data, aes(x = year, y = count, fill = genres_clean)) +
+  geom_area(position = position_stack(vjust = 0.5), alpha = 0.9) + # centering stack to create the symmetrical mountain flow
+  scale_fill_brewer(palette = "Set2") + # assigning colors
+  theme_minimal() +
+  theme(plot.background = element_rect(fill = "#191414", color = NA), # dark theme for background
+        text = element_text(family = "montserrat", color = "white"), # adjusting text
+        legend.position = "bottom", # adjusting legend
+        legend.text = element_text(size = 9),
+        plot.margin = margin(20, 20, 20, 20), # Add a little padding so the stream doesn't hit the edges
+        panel.grid.major = element_line(color = "#333333"), # adjusting gridlines
+        panel.grid.minor = element_line(color = "#222222")) +
+  labs(fill = "Genre", x = "Year", y = "Count", title = "Top Musical Genres", subtitle = "Counts from 1952 to 2025")
+```
+The plot shows that art pop, country, hip hop, and pop have been some of the most popular genres over the past couple of decades. The mountain peaks become higher after the 1990s, as the music included in the dataset between the 1950s and 1990s is small.
+
+
+
+
+**Thank you!!!!**
